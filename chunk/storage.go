@@ -1,37 +1,28 @@
 package chunk
 
 import (
-	"errors"
-	"sync"
+	lru "github.com/hashicorp/golang-lru"
 
 	. "github.com/claudetech/loggo/default"
 )
 
-// ErrTimeout is a timeout error
-var ErrTimeout = errors.New("timeout")
-
 // Storage is a chunk storage
 type Storage struct {
-	ChunkSize int64
-	MaxChunks int
-	chunks    map[string][]byte
-	stack     *Stack
-	lock      sync.Mutex
-}
-
-// Item represents a chunk in RAM
-type Item struct {
-	id    string
-	bytes []byte
+	cache *lru.Cache
 }
 
 // NewStorage creates a new storage
 func NewStorage(chunkSize int64, maxChunks int) *Storage {
+	cache, err := lru.NewWithEvict(maxChunks, func(key interface{}, value interface{}) {
+		Log.Debugf("Deleted chunk %v", key)
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
 	storage := Storage{
-		ChunkSize: chunkSize,
-		MaxChunks: maxChunks,
-		chunks:    make(map[string][]byte),
-		stack:     NewStack(maxChunks),
+		cache: cache,
 	}
 
 	return &storage
@@ -39,35 +30,22 @@ func NewStorage(chunkSize int64, maxChunks int) *Storage {
 
 // Clear removes all old chunks on disk (will be called on each program start)
 func (s *Storage) Clear() error {
+	s.cache.Purge()
 	return nil
 }
 
 // Load a chunk from ram or creates it
 func (s *Storage) Load(id string) []byte {
-	s.lock.Lock()
-	if chunk, exists := s.chunks[id]; exists {
-		s.lock.Unlock()
-		s.stack.Touch(id)
-		return chunk
+	ret, found := s.cache.Get(id)
+	if !found {
+		return nil
 	}
-	s.lock.Unlock()
-	return nil
+
+	return ret.([]byte)
 }
 
 // Store stores a chunk in the RAM and adds it to the disk storage queue
 func (s *Storage) Store(id string, bytes []byte) error {
-	s.lock.Lock()
-
-	deleteID := s.stack.Pop()
-	if "" != deleteID {
-		delete(s.chunks, deleteID)
-
-		Log.Debugf("Deleted chunk %v", deleteID)
-	}
-
-	s.chunks[id] = bytes
-	s.stack.Push(id)
-	s.lock.Unlock()
-
+	s.cache.Add(id, bytes)
 	return nil
 }
