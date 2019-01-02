@@ -251,7 +251,7 @@ func (o *Object) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 		return fuse.EIO
 	}
 
-	resp.Data = res.Bytes
+	resp.Data = res.Bytes[:]
 	return nil
 }
 

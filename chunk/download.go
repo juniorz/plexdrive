@@ -134,5 +134,5 @@ func downloadFromAPI(client *http.Client, request *Request, delay int64) ([]byte
 		return nil, fmt.Errorf("Could not read objects %v (%v) API response", request.object.ObjectID, request.object.Name)
 	}
 
-	return bytes, nil
+	return bytes[:], nil
 }
