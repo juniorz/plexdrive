@@ -17,35 +17,13 @@ import (
 	"golang.org/x/net/context"
 )
 
-// Mount the fuse volume
-func Mount(
-	client *drive.Client,
-	chunkManager *chunk.Manager,
-	mountpoint string,
-	mountOptions []string,
-	uid, gid uint32,
-	umask os.FileMode) error {
-
-	Log.Infof("Mounting path %v", mountpoint)
-
-	if _, err := os.Stat(mountpoint); os.IsNotExist(err) {
-		Log.Debugf("Mountpoint doesn't exist, creating...")
-		if err := os.MkdirAll(mountpoint, 0644); nil != err {
-			Log.Debugf("%v", err)
-			return fmt.Errorf("Could not create mount directory %v", mountpoint)
-		}
-	}
-
-	fuse.Debug = func(msg interface{}) {
-		Log.Tracef("FUSE %v", msg)
-	}
-
+func mountOptions(mountArgs []string) ([]fuse.MountOption, error) {
 	// Set mount options
 	options := []fuse.MountOption{
 		fuse.NoAppleDouble(),
 		fuse.NoAppleXattr(),
 	}
-	for _, option := range mountOptions {
+	for _, option := range mountArgs {
 		if "allow_other" == option {
 			options = append(options, fuse.AllowOther())
 		} else if "allow_root" == option {
@@ -61,7 +39,7 @@ func Mount(
 			value, err := strconv.ParseUint(data[1], 10, 32)
 			if nil != err {
 				Log.Debugf("%v", err)
-				return fmt.Errorf("Could not parse max_readahead value")
+				return nil, fmt.Errorf("Could not parse max_readahead value")
 			}
 			options = append(options, fuse.MaxReadahead(uint32(value)))
 		} else if "default_permissions" == option {
@@ -85,7 +63,38 @@ func Mount(
 		}
 	}
 
-	c, err := fuse.Mount(mountpoint, options...)
+	return options, nil
+}
+
+// Mount the fuse volume
+func Mount(
+	client *drive.Client,
+	chunkManager *chunk.Manager,
+	mountpoint string,
+	mountArgs []string,
+	uid, gid uint32,
+	umask os.FileMode) error {
+
+	Log.Infof("Mounting path %v", mountpoint)
+
+	if _, err := os.Stat(mountpoint); os.IsNotExist(err) {
+		Log.Debugf("Mountpoint doesn't exist, creating...")
+		if err := os.MkdirAll(mountpoint, 0644); nil != err {
+			Log.Debugf("%v", err)
+			return fmt.Errorf("Could not create mount directory %v", mountpoint)
+		}
+	}
+
+	fuse.Debug = func(msg interface{}) {
+		Log.Tracef("FUSE %v", msg)
+	}
+
+	mountOptions, err := mountOptions(mountArgs)
+	if err != nil {
+		return err
+	}
+
+	c, err := fuse.Mount(mountpoint, mountOptions...)
 	if err != nil {
 		return err
 	}
@@ -98,6 +107,7 @@ func Mount(
 		gid:          gid,
 		umask:        umask,
 	}
+
 	if err := fs.Serve(c, filesys); err != nil {
 		return err
 	}
