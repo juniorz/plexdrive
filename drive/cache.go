@@ -132,7 +132,7 @@ func (c *Cache) GetObject(id string) (object *APIObject, err error) {
 		return nil, err
 	}
 
-	Log.Tracef("Got object from cache %v", object)
+	Log.Tracef("Got object from cache %#v", object)
 	return object, err
 }
 
@@ -188,7 +188,7 @@ func (c *Cache) GetObjectByParentAndName(parent, name string) (object *APIObject
 		return nil, fmt.Errorf("Could not find object with name %v in parent %v", name, parent)
 	}
 
-	Log.Tracef("Got object from cache %v", object)
+	Log.Tracef("Got object from cache %#v", object)
 	return object, nil
 }
 

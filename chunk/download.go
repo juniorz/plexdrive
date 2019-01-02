@@ -82,7 +82,7 @@ func downloadFromAPI(client *http.Client, request *Request, delay int64) ([]byte
 
 	req.Header.Add("Range", fmt.Sprintf("bytes=%v-%v", request.offsetStart, request.offsetEnd))
 
-	Log.Tracef("Sending HTTP Request %v", req)
+	Log.Tracef("Sending HTTP Request: %s %s - %#v", req.Method, req.URL, req.Header)
 
 	res, err := client.Do(req)
 	if nil != err {
