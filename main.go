@@ -25,9 +25,18 @@ import (
 	"github.com/dweidenfeld/plexdrive/mount"
 	flag "github.com/ogier/pflag"
 	"golang.org/x/sys/unix"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
 func main() {
+	go func() {
+		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+			Log.Errorf("Error listening on port 6060: %s", err)
+		}
+	}()
+
 	// Find users home directory
 	usr, err := user.Current()
 	home := ""
