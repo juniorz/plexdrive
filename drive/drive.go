@@ -65,7 +65,7 @@ func NewClient(config *config.Config, cache *Cache, refreshInterval time.Duratio
 
 func (d *Client) startWatchChanges(refreshInterval time.Duration) {
 	d.checkChanges(true)
-	for _ = range time.Tick(refreshInterval) {
+	for range time.Tick(refreshInterval) {
 		d.checkChanges(false)
 	}
 }

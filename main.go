@@ -32,15 +32,15 @@ func main() {
 	usr, err := user.Current()
 	home := ""
 	if err != nil {
-	    // Fall back to reading $HOME - work around user.Current() not
-	    // working for cross compiled binaries on OSX or freebsd.
-	    // https://github.com/golang/go/issues/6376
-	    home = os.Getenv("HOME")
-	    if home == "" {
-	    	panic(fmt.Sprintf("Could not read users homedir and HOME is not set: %v\n", err))
-	    }
+		// Fall back to reading $HOME - work around user.Current() not
+		// working for cross compiled binaries on OSX or freebsd.
+		// https://github.com/golang/go/issues/6376
+		home = os.Getenv("HOME")
+		if home == "" {
+			panic(fmt.Sprintf("Could not read users homedir and HOME is not set: %v\n", err))
+		}
 	} else {
-	    home = usr.HomeDir
+		home = usr.HomeDir
 	}
 
 	// parse the command line arguments
