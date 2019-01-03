@@ -64,13 +64,15 @@ func NewClient(config *config.Config, cache *Cache, refreshInterval time.Duratio
 }
 
 func (d *Client) startWatchChanges(refreshInterval time.Duration) {
-	d.checkChanges(true)
+	ctx := context.TODO()
+
+	d.checkChanges(ctx, true)
 	for range time.Tick(refreshInterval) {
-		d.checkChanges(false)
+		d.checkChanges(ctx, false)
 	}
 }
 
-func (d *Client) checkChanges(firstCheck bool) {
+func (d *Client) checkChanges(ctx context.Context, firstCheck bool) {
 	if d.changesChecking {
 		return
 	}
@@ -107,7 +109,7 @@ func (d *Client) checkChanges(firstCheck bool) {
 			Fields(googleapi.Field(fmt.Sprintf("nextPageToken, newStartPageToken, changes(removed, fileId, file(%v))", Fields))).
 			PageSize(1000)
 
-		results, err := query.Do()
+		results, err := query.Context(ctx).Do()
 		if nil != err {
 			Log.Debugf("%v", err)
 			Log.Warningf("Could not get changes")
@@ -214,7 +216,7 @@ func (d *Client) GetNativeClient() *http.Client {
 }
 
 // GetRoot gets the root node directly from the API
-func (d *Client) GetRoot() (*APIObject, error) {
+func (d *Client) GetRoot(ctx context.Context) (*APIObject, error) {
 	Log.Debugf("Getting root from API")
 
 	client, err := d.getClient()
@@ -226,6 +228,7 @@ func (d *Client) GetRoot() (*APIObject, error) {
 	file, err := client.Files.
 		Get(d.rootNodeID).
 		Fields(googleapi.Field(Fields)).
+		Context(ctx).
 		Do()
 	if nil != err {
 		Log.Debugf("%v", err)
@@ -261,7 +264,7 @@ func (d *Client) GetObjectByParentAndName(parent, name string) (*APIObject, erro
 }
 
 // Remove removes file from Google Drive
-func (d *Client) Remove(object *APIObject, parent string) error {
+func (d *Client) Remove(ctx context.Context, object *APIObject, parent string) error {
 	client, err := d.getClient()
 	if nil != err {
 		Log.Debugf("%v", err)
@@ -275,13 +278,15 @@ func (d *Client) Remove(object *APIObject, parent string) error {
 
 	go func() {
 		if object.CanTrash {
-			if _, err := client.Files.Update(object.ObjectID, &gdrive.File{Trashed: true}).Do(); nil != err {
+			q := client.Files.Update(object.ObjectID, &gdrive.File{Trashed: true})
+			if _, err := q.Context(ctx).Do(); nil != err {
 				Log.Debugf("%v", err)
 				Log.Warningf("Could not delete object %v (%v) from API", object.ObjectID, object.Name)
 				d.cache.UpdateObject(object)
 			}
 		} else {
-			if _, err := client.Files.Update(object.ObjectID, nil).RemoveParents(parent).Do(); nil != err {
+			q := client.Files.Update(object.ObjectID, nil).RemoveParents(parent)
+			if _, err := q.Context(ctx).Do(); nil != err {
 				Log.Debugf("%v", err)
 				Log.Warningf("Could not unsubscribe object %v (%v) from API", object.ObjectID, object.Name)
 				d.cache.UpdateObject(object)
@@ -293,20 +298,22 @@ func (d *Client) Remove(object *APIObject, parent string) error {
 }
 
 // Mkdir creates a new directory in Google Drive
-func (d *Client) Mkdir(parent string, Name string) (*APIObject, error) {
+func (d *Client) Mkdir(ctx context.Context, parent string, Name string) (*APIObject, error) {
 	client, err := d.getClient()
 	if nil != err {
 		Log.Debugf("%v", err)
 		return nil, fmt.Errorf("Could not get Google Drive client")
 	}
 
-	created, err := client.Files.Create(&gdrive.File{Name: Name, Parents: []string{parent}, MimeType: "application/vnd.google-apps.folder"}).Do()
+	create := client.Files.Create(&gdrive.File{Name: Name, Parents: []string{parent}, MimeType: "application/vnd.google-apps.folder"})
+	created, err := create.Context(ctx).Do()
 	if nil != err {
 		Log.Debugf("%v", err)
 		return nil, fmt.Errorf("Could not create object(%v) from API", Name)
 	}
 
-	file, err := client.Files.Get(created.Id).Fields(googleapi.Field(Fields)).Do()
+	getFile := client.Files.Get(created.Id).Fields(googleapi.Field(Fields))
+	file, err := getFile.Context(ctx).Do()
 	if nil != err {
 		Log.Debugf("%v", err)
 		return nil, fmt.Errorf("Could not get object fields %v from API", created.Id)
@@ -327,14 +334,15 @@ func (d *Client) Mkdir(parent string, Name string) (*APIObject, error) {
 }
 
 // Rename renames file in Google Drive
-func (d *Client) Rename(object *APIObject, OldParent string, NewParent string, NewName string) error {
+func (d *Client) Rename(ctx context.Context, object *APIObject, OldParent string, NewParent string, NewName string) error {
 	client, err := d.getClient()
 	if nil != err {
 		Log.Debugf("%v", err)
 		return fmt.Errorf("Could not get Google Drive client")
 	}
 
-	if _, err := client.Files.Update(object.ObjectID, &gdrive.File{Name: NewName}).RemoveParents(OldParent).AddParents(NewParent).Do(); nil != err {
+	rename := client.Files.Update(object.ObjectID, &gdrive.File{Name: NewName}).RemoveParents(OldParent).AddParents(NewParent)
+	if _, err := rename.Context(ctx).Do(); nil != err {
 		Log.Debugf("%v", err)
 		return fmt.Errorf("Could not rename object %v (%v) from API", object.ObjectID, object.Name)
 	}

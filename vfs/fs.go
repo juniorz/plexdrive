@@ -34,11 +34,14 @@ func NewFS(client *drive.Client, chunkManager *chunk.Manager, uid uint32, gid ui
 
 // Root returns the root path
 func (f *FS) Root() (fs.Node, error) {
-	object, err := f.client.GetRoot()
+	ctx := context.TODO()
+
+	object, err := f.client.GetRoot(ctx)
 	if nil != err {
 		Log.Warningf("%v", err)
 		return nil, fmt.Errorf("Could not get root object")
 	}
+
 	return &Object{
 		client:       f.client,
 		chunkManager: f.chunkManager,
@@ -61,6 +64,10 @@ type Object struct {
 
 // Attr returns the attributes for a directory
 func (o *Object) Attr(ctx context.Context, attr *fuse.Attr) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	if o.object.IsDir {
 		if o.umask > 0 {
 			attr.Mode = os.ModeDir | o.umask
@@ -155,7 +162,7 @@ func (o *Object) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 		return fuse.EIO
 	}
 
-	err = o.client.Remove(obj, o.object.ObjectID)
+	err = o.client.Remove(ctx, obj, o.object.ObjectID)
 	if nil != err {
 		Log.Warningf("%v", err)
 		return fuse.EIO
@@ -166,7 +173,7 @@ func (o *Object) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 
 // Mkdir creates a new directory
 func (o *Object) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
-	newObj, err := o.client.Mkdir(o.object.ObjectID, req.Name)
+	newObj, err := o.client.Mkdir(ctx, o.object.ObjectID, req.Name)
 	if nil != err {
 		Log.Warningf("%v", err)
 		return nil, fuse.EIO
@@ -195,7 +202,7 @@ func (o *Object) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.
 		return fuse.EIO
 	}
 
-	err = o.client.Rename(obj, o.object.ObjectID, destDir.object.ObjectID, req.NewName)
+	err = o.client.Rename(ctx, obj, o.object.ObjectID, destDir.object.ObjectID, req.NewName)
 	if nil != err {
 		Log.Warningf("%v", err)
 		return fuse.EIO
