@@ -37,7 +37,7 @@ func (f *FS) Root() (fs.Node, error) {
 	ctx := context.TODO()
 
 	object, err := f.client.GetRoot(ctx)
-	if nil != err {
+	if err != nil {
 		Log.Warningf("%v", err)
 		return nil, fmt.Errorf("Could not get root object")
 	}
@@ -65,7 +65,7 @@ type Object struct {
 // Attr returns the attributes for a directory
 func (o *Object) Attr(ctx context.Context, attr *fuse.Attr) error {
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return fuse.EINTR
 	}
 
 	if o.object.IsDir {
@@ -99,9 +99,8 @@ func (o *Object) Attr(ctx context.Context, attr *fuse.Attr) error {
 // ReadDirAll shows all files in the current directory
 func (o *Object) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	objects, err := o.client.GetObjectsByParent(o.object.ObjectID)
-	if nil != err {
-		Log.Debugf("%v", err)
-		return nil, fuse.ENOENT
+	if err := toFuseErr(ctx, err); err != nil {
+		return nil, err
 	}
 
 	dirs := []fuse.Dirent{}
@@ -124,9 +123,8 @@ func (o *Object) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 // Lookup tests if a file is existent in the current directory
 func (o *Object) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	object, err := o.client.GetObjectByParentAndName(o.object.ObjectID, name)
-	if nil != err {
-		Log.Tracef("%v", err)
-		return nil, fuse.ENOENT
+	if err := toFuseErr(ctx, err); err != nil {
+		return nil, err
 	}
 
 	return &Object{
@@ -139,44 +137,44 @@ func (o *Object) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	}, nil
 }
 
+func (o *Object) fromChunks(ctx context.Context, offset, size int64) ([]byte, error) {
+	response := make(chan chunk.Response)
+	go o.chunkManager.GetChunk(o.object, offset, size, response)
+
+	select {
+	case <-ctx.Done():
+		return nil, fuse.EINTR
+	case res := <-response:
+		return res.Bytes[:], res.Error
+	}
+}
+
 // Read reads some bytes or the whole file
 func (o *Object) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
-	response := make(chan chunk.Response)
-	o.chunkManager.GetChunk(o.object, req.Offset, int64(req.Size), response)
-	res := <-response
+	Log.Debugf("Read: Requested %d bytes", req.Size)
 
-	if nil != res.Error {
-		Log.Warningf("%v", res.Error)
-		return fuse.EIO
-	}
+	var err error
+	resp.Data, err = o.fromChunks(ctx, req.Offset, int64(req.Size))
 
-	resp.Data = res.Bytes[:]
-	return nil
+	Log.Debugf("Read: Returned %d bytes", len(resp.Data))
+	return toFuseErr(ctx, err)
 }
 
 // Remove deletes an element
 func (o *Object) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	obj, err := o.client.GetObjectByParentAndName(o.object.ObjectID, req.Name)
-	if nil != err {
-		Log.Warningf("%v", err)
-		return fuse.EIO
+	if err != nil {
+		err = o.client.Remove(ctx, obj, o.object.ObjectID)
 	}
 
-	err = o.client.Remove(ctx, obj, o.object.ObjectID)
-	if nil != err {
-		Log.Warningf("%v", err)
-		return fuse.EIO
-	}
-
-	return nil
+	return toFuseErr(ctx, err)
 }
 
 // Mkdir creates a new directory
 func (o *Object) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
 	newObj, err := o.client.Mkdir(ctx, o.object.ObjectID, req.Name)
-	if nil != err {
-		Log.Warningf("%v", err)
-		return nil, fuse.EIO
+	if err := toFuseErr(ctx, err); err != nil {
+		return nil, err
 	}
 
 	return &Object{
@@ -190,20 +188,26 @@ func (o *Object) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, er
 
 // Rename renames an element
 func (o *Object) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
-	obj, err := o.client.GetObjectByParentAndName(o.object.ObjectID, req.OldName)
-	if nil != err {
-		Log.Warningf("%v", err)
-		return fuse.EIO
-	}
-
 	destDir, ok := newDir.(*Object)
 	if !ok {
-		Log.Warningf("%v", err)
+		Log.Warningf("Destination is not a directory")
 		return fuse.EIO
 	}
 
-	err = o.client.Rename(ctx, obj, o.object.ObjectID, destDir.object.ObjectID, req.NewName)
-	if nil != err {
+	obj, err := o.client.GetObjectByParentAndName(o.object.ObjectID, req.OldName)
+	if err != nil {
+		err = o.client.Rename(ctx, obj, o.object.ObjectID, destDir.object.ObjectID, req.NewName)
+	}
+
+	return toFuseErr(ctx, err)
+}
+
+func toFuseErr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return fuse.EINTR
+	}
+
+	if err != nil {
 		Log.Warningf("%v", err)
 		return fuse.EIO
 	}
