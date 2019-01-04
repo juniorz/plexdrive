@@ -84,11 +84,16 @@ func NewManager(
 	return &manager, nil
 }
 
+func (m *Manager) Close() {
+	close(m.queue)
+	m.storage.Clear()
+}
+
 // GetChunk loads one chunk and starts the preload for the next chunks
 func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64, response chan Response) {
 	chunkOffset := offset % m.ChunkSize
 	offsetStart := offset - chunkOffset
-	offsetEnd := offsetStart + m.ChunkSize
+	offsetEnd := offsetStart + m.ChunkSize - 1
 	id := fmt.Sprintf("%v:%v", object.ObjectID, offsetStart)
 
 	request := &Request{
@@ -108,7 +113,7 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64, response
 
 	for i := m.ChunkSize; i < (m.ChunkSize * int64(m.LoadAhead+1)); i += m.ChunkSize {
 		aheadOffsetStart := offsetStart + i
-		aheadOffsetEnd := aheadOffsetStart + m.ChunkSize
+		aheadOffsetEnd := aheadOffsetStart + m.ChunkSize - 1
 		if uint64(aheadOffsetStart) < object.Size && uint64(aheadOffsetEnd) < object.Size {
 			id := fmt.Sprintf("%v:%v", object.ObjectID, aheadOffsetStart)
 			request := &Request{
@@ -126,8 +131,7 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64, response
 }
 
 func (m *Manager) thread() {
-	for {
-		queueEntry := <-m.queue
+	for queueEntry := range m.queue {
 		m.checkChunk(queueEntry.request, queueEntry.response)
 	}
 }
